@@ -3,9 +3,15 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
+use function Laravel\Prompts\password;
 
 class AuthController extends Controller
 {
@@ -82,6 +88,95 @@ class AuthController extends Controller
                 'message' => "Failed to create new user"
             ], 501);
         }
+    }
+
+    public function forget_password(Request $request): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'email' => 'required'
+        ]);
+
+        if ($validator->fails()){
+            return response()->json([
+                'error' => true,
+                'message' => $validator->errors()
+            ], 403);
+        }
+
+        $token = Str::random(5);
+
+        try {
+            $exists = DB::table('password_resets')->where('email', '=', $request->input('email'))->exists();
+            if (! $exists){
+                DB::table('password_resets')->insert([
+                    'email' => $request->input('email'),
+                    'token' => $token,
+                    'created_at' => Carbon::now()
+                ]);
+            }else{
+                return response()->json([
+                    'error' => false,
+                    'message' => 'We have e-mailed your token reset password'
+                ], 201);
+            }
+
+            Mail::send('email.forgotPassword', ['token' => $token], function ($message) use ($request){
+                $message->to($request->input('email'));
+                $message->subject("Reset password");
+            });
+
+            return response()->json([
+                'error' => false,
+                'message' => 'We have e-mailed your token reset password'
+            ], 201);
+        }catch (\Exception $exception){
+            Log::error("Send email: ". $exception->getMessage());
+            return response()->json([
+                'error' => true,
+                'message' => "Failed"
+            ], 403);
+        }
+    }
+
+    public function submit_reset_password(Request $request): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'email' => 'required|email|exists:users',
+            'password' => 'required',
+            'password_confirmation' => 'required'
+        ]);
+
+        if ($validator->fails()){
+            return response()->json([
+                'error' => true,
+                'message' => $validator->errors()
+            ], 403);
+        }
+
+        $updatePassword = DB::table('password_resets')
+            ->where([
+                'email' => $request->input('email'),
+                'token' => $request->input('token')
+            ])->first();
+
+        if (! $updatePassword){
+            return response()->json([
+                'error' => true,
+                'message' => "invalid token"
+            ], 403);
+        }
+
+        User::query()->where('email', '=', $request->input('email'))
+            ->update([
+                'password' => bcrypt($request->input('password'))
+            ]);
+
+        DB::table('password_resets')->where(['email' => $request->input('email')])->delete();
+
+        return response()->json([
+            'error' => false,
+            'message' => 'password has been changed'
+        ],201);
     }
 
     public function logout(): JsonResponse

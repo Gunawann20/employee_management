@@ -21,12 +21,29 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {
-        $exceptions->render(function (AuthenticationException $authenticationException, Request $request){
-            if ($request->is("/api/*")){
-                return response()->json([
-                    'error' => true,
-                    'message' => 'Unauthorized'
-                ], 401);
+        $exceptions->render(function (Exception $exception, Request $request){
+            if ($request->is("api/*")){
+                if ($exception->getMessage() == "Route [login] not defined."){
+                    return response()->json([
+                        'error' => true,
+                        'message' => 'Unauthorized'
+                    ], 401);
+                }elseif ($exception->getMessage() == "User does not have the right roles."){
+                    return response()->json([
+                        'error' => true,
+                        'message' => 'Forbidden'
+                    ], 403);
+                }elseif ($exception->getMessage() == "User does not have the right permissions."){
+                    return response()->json([
+                        'error' => true,
+                        'message' => 'Forbidden'
+                    ], 403);
+                }else{
+                    return response()->json([
+                        'error' => true,
+                        'message' => 'Internal server error'
+                    ], 501);
+                }
             }
         });
     })->create();
